@@ -46,12 +46,18 @@ namespace PhoneRemote.ConsoleTest
 			await server.WaitForConnectionAsync(CancellationToken.None);
 			Console.WriteLine("Got connection. Listening for messages..");
 
+			var cursor = CursorUtils.GetCursorInfo();
+
 			await foreach (var pos in server.WaitForMessageAsync<CursorPosition>(CancellationToken.None))
 			{
 				//Console.SetCursorPosition(0, 2);
-				//Console.WriteLine($"x,y={pos.DX},{pos.DY}");
 
-				CursorUtils.MoveCursor(pos.DX, pos.DY);
+				cursor.ptScreenPos.x += pos.DX;
+				cursor.ptScreenPos.y += pos.DY;
+
+				//Console.WriteLine($"dx,dy={pos.DX},{pos.DY}");
+
+				CursorUtils.MoveCursor(cursor.ptScreenPos.x, cursor.ptScreenPos.y);
 			}
 		}
 	}

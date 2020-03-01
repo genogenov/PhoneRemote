@@ -37,7 +37,7 @@ namespace PhoneRemote.Core
 				this.cancellationTask = new TaskCompletionSource<int>();
 				this.cts.Token.Register(() => this.cancellationTask.SetCanceled());
 				this.InitSocket();
-				this.ListenForConnections();
+				_ = this.ListenForConnections();
 
 				this.logger.LogInformation($"Start listening for connections on {this.udpClient.LocalEndPoint}");
 			}
@@ -73,7 +73,6 @@ namespace PhoneRemote.Core
 			{
 				try
 				{		
-					//this.udpClient.Listen(1);
 					var buffer = new byte[10];
 					var task = this.udpClient.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, ServiceDiscoveryPort));
 					var socket = await Task.WhenAny(task, this.cancellationTask.Task).ConfigureAwait(false);
@@ -82,12 +81,13 @@ namespace PhoneRemote.Core
 						return;
 					}
 
-					OnConnectionAccepted(task.Result);
+					_ = OnConnectionAccepted(task.Result);
 				}
 				catch (Exception ex)
 				{
 					if (isShutDown || this.cancellationTask.Task.IsCanceled)
 					{
+						this.logger.LogWarning(ex, "Broadcaster shutting down.");
 						return;
 					}
 				}

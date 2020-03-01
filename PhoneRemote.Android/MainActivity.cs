@@ -8,6 +8,7 @@ using Android.Support.V7.App;
 using Android.Views;
 using Android.Widget;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
 using PhoneRemote.Core;
 using PhoneRemote.Protobuf;
 using PhoneRemote.Protobuf.ProtoModels;
@@ -27,17 +28,21 @@ namespace PhoneRemote.AndroidClient
 		private TextView actionText;
 		private TextView xText;
 		private TextView yText;
+		private ILogger<PhoneRemoteClient<IMessage>> logger;
 
-		private PhoneRemoteClient<IMessage> tcpClient = new PhoneRemoteClient<IMessage>(new ProtobufMessageSerializer());
+		private PhoneRemoteClient<IMessage> tcpClient;
 		private bool isConnected = false;
 
 		protected override void OnCreate(Bundle savedInstanceState)
 		{
+			this.logger = LoggerFactory.Create(x => x.ClearProviders()).CreateLogger<PhoneRemoteClient<IMessage>>();
+			this.tcpClient = new PhoneRemoteClient<IMessage>(new ProtobufMessageSerializer(), this.logger);
+
 			tcpClient.DiscoverServerAsync<ServiceDiscoveryMessage>(CancellationToken.None).ContinueWith(res =>
 			{
 				if (res.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
 				{
-					tcpClient.ConnectAsync(new System.Net.IPEndPoint(res.Result.IpAddress, res.Result.Port)).ContinueWith(t =>
+					tcpClient.ConnectAsync(new System.Net.IPEndPoint(res.Result.IpAddress, res.Result.Port), CancellationToken.None).ContinueWith(t =>
 					{
 						if (res.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
 						{
@@ -166,21 +171,16 @@ namespace PhoneRemote.AndroidClient
 				case MotionEventActions.Move:
 					int newX = (int)x;
 					int newY = (int)y;
-					//int dx = Math.Abs(this.x - newX);
-					//int dY = Math.Abs(this.y - newY);
+					int dx = newX - this.x;
+					int dY = newY - this.y;
 
 					this.x = newX;
 					this.y = newY;
 
-					//if (dx > 4 && dY > 4)
-					//{
-					//	this.x = (int)x;
-					//	this.y = (int)y;
-					//}
-					//else
-					//{
-					//	shouldSend = false;
-					//}
+					if (this.isConnected && shouldSend)
+					{
+						this.tcpClient.SendAsync(new CursorPosition() { DX = dx, DY = dY }, CancellationToken.None);
+					}
 					break;
 				case MotionEventActions.Up:
 					this.x = (int)x;
@@ -190,11 +190,6 @@ namespace PhoneRemote.AndroidClient
 			this.actionText.Text = this.lastTouch;
 			this.xText.Text = this.x.ToString();
 			this.yText.Text = this.y.ToString();
-
-			if (this.isConnected && shouldSend)
-			{
-				this.tcpClient.SendAsync(new CursorPosition() { DX = this.x, DY = this.y });
-			}
 
 			return true;
 		}

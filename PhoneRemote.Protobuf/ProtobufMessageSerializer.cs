@@ -31,14 +31,14 @@ namespace PhoneRemote.Protobuf
 
 			while (length == 0)
 			{
-				await socket.ReceiveAsync(buff, SocketFlags.None);
+				int bytesReceived = await socket.ReceiveAsync(buff, SocketFlags.None);
+
+				if (bytesReceived == 0)
+				{
+					throw new InvalidOperationException("Socket disconnected. 0 bytes received");
+				}
 
 				length = BitConverter.ToInt32(buff);
-
-				if (length == 0 && (!socket.Connected || (!socket.Poll(1, SelectMode.SelectRead) && socket.Available == 0)))
-				{
-					throw new InvalidOperationException("Socket disconnected");
-				}
 			}
 
 			if (length > MaxMessageBytesLength)
