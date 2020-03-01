@@ -1,0 +1,9 @@
+﻿syntax = "proto3";
+package PhoneRemote;
+
+option csharp_namespace = "PhoneRemote.Protobuf.ProtoModels";
+
+message CursorPosition {
+	int32 dX = 1;
+	int32 dY = 2;
+}

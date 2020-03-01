@@ -1,0 +1,10 @@
+﻿syntax = "proto3";
+package PhoneRemote;
+
+option csharp_namespace = "PhoneRemote.Protobuf.ProtoModels";
+
+message ServiceDiscoveryMessage {
+	bytes IpAddress = 1;
+	int32 Port = 2;
+	string ServerName = 3;
+}

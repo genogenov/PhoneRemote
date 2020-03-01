@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.1</TargetFramework>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Google.Protobuf" Version="3.11.4" />
+		<PackageReference Include="Google.Protobuf.Tools" Version="3.11.4" GeneratePathProperty="true" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\PhoneRemote.Core\PhoneRemote.Core.csproj" />
+	</ItemGroup>
+
+
+	<Target Name="protogen" BeforeTargets="BeforeBuild">
+		<Exec Command="&#xD;&#xA;			  $(PkgGoogle_Protobuf_Tools)\tools\windows_x64\protoc.exe --proto_path=$(ProjectDir)\ProtoDefs --csharp_out=$(ProjectDir)\ProtoModels $(ProjectDir)\ProtoDefs\*.proto" />
+	</Target>
+</Project>
