@@ -1,8 +1,6 @@
 ﻿using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Console;
-using Microsoft.Extensions.Options;
 using PhoneRemote.Core;
 using PhoneRemote.Interop.Windows;
 using PhoneRemote.Protobuf;
@@ -12,7 +10,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PhoneRemote.ConsoleTest
+namespace PhoneRemote.ServerConsole
 {
 	class Program
 	{
@@ -38,7 +36,7 @@ namespace PhoneRemote.ConsoleTest
 
 			var serializer = new ProtobufMessageSerializer();
 			var broadcaster = new PhoneRemoteServiceBroadcaster<IMessage>(serializer, serviceDescriptor, logger);
-			var server = new PhoneRemoteServer<IMessage>(serializer, new System.Net.IPEndPoint(new IPAddress(serviceDescriptor.IpAddress.Span), serviceDescriptor.Port), serverLogger);
+			var server = new PhoneRemoteServer<IMessage>(serializer, new IPEndPoint(new IPAddress(serviceDescriptor.IpAddress.Span), serviceDescriptor.Port), serverLogger);
 
 			broadcaster.StartListenForClients();
 

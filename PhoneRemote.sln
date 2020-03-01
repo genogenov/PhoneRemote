@@ -9,11 +9,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhoneRemote.AndroidClient",
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PhoneRemote.Core", "PhoneRemote.Core\PhoneRemote.Core.csproj", "{DF794C01-5612-4E81-B5E9-80E5559C19BA}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PhoneRemote.Console", "PhoneRemote.Console\PhoneRemote.Console.csproj", "{964D9A2D-62B5-45EB-9EE7-704628C679B6}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PhoneRemote.ServerConsole", "PhoneRemote.ServerConsole\PhoneRemote.ServerConsole.csproj", "{964D9A2D-62B5-45EB-9EE7-704628C679B6}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PhoneRemote.ClientConsole", "PhoneRemote.ClientConsole\PhoneRemote.ClientConsole.csproj", "{D5368E4A-738C-4B9C-892B-DC7909A9C388}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhoneRemote.Protobuf", "PhoneRemote.Protobuf\PhoneRemote.Protobuf.csproj", "{C785BBF3-8D60-41B9-B354-A9BEE0056F67}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PhoneRemote.Protobuf", "PhoneRemote.Protobuf\PhoneRemote.Protobuf.csproj", "{C785BBF3-8D60-41B9-B354-A9BEE0056F67}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
