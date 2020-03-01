@@ -7,14 +7,12 @@ using Android.Support.V4.Widget;
 using Android.Support.V7.App;
 using Android.Views;
 using Android.Widget;
-using Google.Protobuf;
-using Microsoft.Extensions.Logging;
-using PhoneRemote.Core;
-using PhoneRemote.Protobuf;
+using PhoneRemote.AndroidClient.Client;
 using PhoneRemote.Protobuf.ProtoModels;
 using System;
 using System.Net.Sockets;
 using System.Threading;
+using Xamarin.Essentials;
 
 namespace PhoneRemote.AndroidClient
 {
@@ -23,35 +21,20 @@ namespace PhoneRemote.AndroidClient
 	{
 		private int x;
 		private int y;
-		private string lastTouch;
+		private MotionEventActions lastTouch;
 
 		private TextView actionText;
 		private TextView xText;
 		private TextView yText;
-		private ILogger<PhoneRemoteClient<IMessage>> logger;
 
-		private PhoneRemoteClient<IMessage> tcpClient;
-		private bool isConnected = false;
+		private LinearLayout connectivityBar;
+		private TextView serverText;
+		private TextView connectionText;
+
+		private ClientFacade client;
 
 		protected override void OnCreate(Bundle savedInstanceState)
 		{
-			this.logger = LoggerFactory.Create(x => x.ClearProviders()).CreateLogger<PhoneRemoteClient<IMessage>>();
-			this.tcpClient = new PhoneRemoteClient<IMessage>(new ProtobufMessageSerializer(), this.logger);
-
-			tcpClient.DiscoverServerAsync<ServiceDiscoveryMessage>(CancellationToken.None).ContinueWith(res =>
-			{
-				if (res.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
-				{
-					tcpClient.ConnectAsync(new System.Net.IPEndPoint(res.Result.IpAddress, res.Result.Port), CancellationToken.None).ContinueWith(t =>
-					{
-						if (res.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
-						{
-							isConnected = true;
-						}
-					});
-				}
-			});
-
 			base.OnCreate(savedInstanceState);
 			Xamarin.Essentials.Platform.Init(this, savedInstanceState);
 			SetContentView(Resource.Layout.activity_main);
@@ -65,10 +48,16 @@ namespace PhoneRemote.AndroidClient
 			this.xText = FindViewById<TextView>(Resource.Id.xText);
 			this.yText = FindViewById<TextView>(Resource.Id.yText);
 
+			this.connectivityBar = FindViewById<LinearLayout>(Resource.Id.connectivityBar);
+			this.serverText = FindViewById<TextView>(Resource.Id.serverText);
+			this.connectionText = FindViewById<TextView>(Resource.Id.connectionText);
+
 			var mouseController = FindViewById<RelativeLayout>(Resource.Id.mouse_controller);
 			DrawerLayout drawer = FindViewById<DrawerLayout>(Resource.Id.drawer_layout);
 
 			mouseController.SetOnTouchListener(this);
+			mouseController.Clickable = true;
+			mouseController.Focusable = true;
 
 			ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(this, drawer, toolbar, Resource.String.navigation_drawer_open, Resource.String.navigation_drawer_close);
 			drawer.AddDrawerListener(toggle);
@@ -76,6 +65,42 @@ namespace PhoneRemote.AndroidClient
 
 			NavigationView navigationView = FindViewById<NavigationView>(Resource.Id.nav_view);
 			navigationView.SetNavigationItemSelectedListener(this);
+
+			this.client = new ClientFacade();
+
+			this.client.ServerDiscovery += Client_ServerDiscovery;
+			this.client.ConnectionStateChange += Client_ConnectionStateChange;
+			this.client.DiscoverAndConnect();
+		}
+
+		private void Client_ConnectionStateChange(object sender, PhoneRemoteClientEventArgs e)
+		{
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				bool isConnected = e.IsConnected;
+				this.connectionText.SetText(isConnected ? "Connected" : "Disconnected", TextView.BufferType.Normal);
+
+				var color = isConnected ? Android.Graphics.Color.Green : Android.Graphics.Color.OrangeRed;
+				this.connectivityBar.SetBackgroundColor(color);
+			});
+		}
+
+		private void Client_ServerDiscovery(object sender, PhoneRemoteClientEventArgs e)
+		{
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				this.serverText.Text = $"{e.Message.ServerName} ({e.Message.Address.ToString()}:{e.Message.Port})";
+			});
+		}
+
+		private void HandleMouseClick()
+		{
+			this.client.Send(new CursorAction() { ActionFlags = (uint)(CursorAction.MouseEventFlags.LEFTDOWN | CursorAction.MouseEventFlags.LEFTUP)});
+		}
+
+		private void HandleMouseRightClick()
+		{
+			this.client.Send(new CursorAction() { ActionFlags = (uint)(CursorAction.MouseEventFlags.RIGHTDOWN | CursorAction.MouseEventFlags.RIGHTUP) });
 		}
 
 		public override void OnBackPressed()
@@ -157,37 +182,55 @@ namespace PhoneRemote.AndroidClient
 
 		public bool OnTouch(View v, MotionEvent e)
 		{
-			float x = e.GetX();
-			float y = e.GetY();
-			this.lastTouch = e.Action.ToString();
+			var newAction = e.Action;
 
-			bool shouldSend = true;
 			switch (e.Action)
 			{
+				case MotionEventActions.Up:
+					if(this.lastTouch == MotionEventActions.Down)
+					{
+						this.HandleMouseClick();
+					}
+					break;
 				case MotionEventActions.Down:
-					this.x = (int)x;
-					this.y = (int)y;
+					this.x = (int)e.GetX();
+					this.y = (int)e.GetY();
+					break;
+				case MotionEventActions.Pointer1Up:
+					if(this.lastTouch == MotionEventActions.Pointer2Down)
+					{
+						this.HandleMouseRightClick();
+					}
 					break;
 				case MotionEventActions.Move:
+					float x = e.GetX();
+					float y = e.GetY();
 					int newX = (int)x;
 					int newY = (int)y;
+
 					int dx = newX - this.x;
 					int dY = newY - this.y;
 
-					this.x = newX;
-					this.y = newY;
+					newAction = this.lastTouch;
 
-					if (this.isConnected && shouldSend)
+					if (this.lastTouch == MotionEventActions.Pointer2Down)
 					{
-						this.tcpClient.SendAsync(new CursorPosition() { DX = dx, DY = dY }, CancellationToken.None);
+						break;
+					}
+
+					if (Math.Abs(dx) > 3 || Math.Abs(dY) > 3)
+					{
+						this.x = newX;
+						this.y = newY;
+
+						this.client.Send(new CursorAction() { ActionFlags = (uint)CursorAction.MouseEventFlags.MOVE, DX = dx, DY = dY });
+						newAction = e.Action;
 					}
 					break;
-				case MotionEventActions.Up:
-					this.x = (int)x;
-					this.y = (int)y;
-					break;
 			}
-			this.actionText.Text = this.lastTouch;
+
+			this.lastTouch = newAction;
+			this.actionText.Text = this.lastTouch.ToString();
 			this.xText.Text = this.x.ToString();
 			this.yText.Text = this.y.ToString();
 

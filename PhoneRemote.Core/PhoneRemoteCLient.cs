@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -12,100 +11,87 @@ namespace PhoneRemote.Core
 	{
 		private Socket client;
 
-		private readonly SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
 		private readonly object syncRoot = new object();
 		private readonly IMessageSerializer<TMessage> messageSerializer;
 		private readonly ILogger<PhoneRemoteClient<TMessage>> logger;
+		private readonly bool activelyRepairConnection;
 
 		private Task establishConnectionTask;
 		private IPEndPoint remoteEndpoint;
 
-		public PhoneRemoteClient(IMessageSerializer<TMessage> messageSerializer, ILogger<PhoneRemoteClient<TMessage>> logger)
+		public event EventHandler<ConnectionChangeEventArgs> ConnectionChange;
+
+		public PhoneRemoteClient(IMessageSerializer<TMessage> messageSerializer, bool activelyRepairConnection, ILogger<PhoneRemoteClient<TMessage>> logger)
 		{
 			this.messageSerializer = messageSerializer;
+			this.activelyRepairConnection = activelyRepairConnection;
 			this.logger = logger;
 		}
 
 		public bool IsConnected { get; private set; }
 
-		public async Task<IServiceDiscoveryMessage> DiscoverServerAsync<TDiscoveryMessage>(CancellationToken cancellationToken) where TDiscoveryMessage : IServiceDiscoveryMessage, TMessage, new()
+		public bool IsConnecting { get; private set; }
+
+		public async Task<TDiscoveryMessage> DiscoverServerAsync<TDiscoveryMessage>(CancellationToken cancellationToken) where TDiscoveryMessage : IServiceDiscoveryMessage, TMessage, new()
 		{
-			while (true)
+			var tcs = new TaskCompletionSource<int>();
+			var registration = cancellationToken.Register(() => tcs.SetCanceled());
+
+			try
 			{
-				try
+				while (!cancellationToken.IsCancellationRequested)
 				{
-					using (var udpClient = new UdpClient())
+					try
 					{
-						udpClient.EnableBroadcast = true;
-
-						// for emulator
-						//var broadcastAddress = IPAddress.Parse("10.0.2.2");
-						var broadcastAddress = IPAddress.Broadcast;
-
-						await udpClient.SendAsync(new byte[0], 0, new IPEndPoint(broadcastAddress, 8766)).ConfigureAwait(false);
-
-						var receiveTask = udpClient.ReceiveAsync();
-						await Task.WhenAny(receiveTask, Task.Delay(5000)).ConfigureAwait(false);
-						if (receiveTask.Status != TaskStatus.RanToCompletion)
+						using (var udpClient = new UdpClient())
 						{
-							this.logger.LogWarning("Could not receive response from broadcast in 5s. Retrying.");
-							continue;
+							udpClient.EnableBroadcast = true;
+
+							// for emulator
+							//var broadcastAddress = IPAddress.Parse("10.0.2.2");
+							var broadcastAddress = IPAddress.Broadcast;
+
+							await udpClient.SendAsync(new byte[0], 0, new IPEndPoint(broadcastAddress, 8766)).ConfigureAwait(false);
+
+							var receiveTask = udpClient.ReceiveAsync();
+							await Task.WhenAny(receiveTask, Task.Delay(5000), tcs.Task).ConfigureAwait(false);
+							if (receiveTask.Status != TaskStatus.RanToCompletion)
+							{
+								this.logger.LogWarning("Could not receive response from broadcast in 5s. Retrying.");
+								continue;
+							}
+
+							var res = receiveTask.Result;
+
+							return this.messageSerializer.Deserialize<TDiscoveryMessage>(res.Buffer, cancellationToken);
 						}
-
-						var res = receiveTask.Result;
-
-						return this.messageSerializer.Deserialize<TDiscoveryMessage>(res.Buffer, cancellationToken);
+					}
+					catch (Exception ex)
+					{
+						this.logger.LogError(ex, "Error while resolving server.");
 					}
 				}
-				catch (Exception ex)
-				{
-					this.logger.LogError(ex, "Error while resolving server.");
-				}
+
+				throw new TaskCanceledException();
+			}
+			finally
+			{
+				registration.Dispose();
 			}
 		}
 
-		public async Task ConnectAsync(IPEndPoint iPEndPoint, CancellationToken cancellationToken)
+		public Task ConnectAsync(IPEndPoint iPEndPoint, CancellationToken cancellationToken)
 		{
-			var tcs = new TaskCompletionSource<int>();
-			cancellationToken.Register(() => tcs.SetCanceled());
-
-			while (!cancellationToken.IsCancellationRequested)
-			{
-				try
-				{
-					this.InitSocket();
-					var remoteSocketTask = this.client.ConnectAsync(iPEndPoint);
-					await Task.WhenAny(remoteSocketTask, tcs.Task).ConfigureAwait(false);
-
-					if (remoteSocketTask.Status != TaskStatus.RanToCompletion)
-					{
-						this.logger.LogError(remoteSocketTask.Exception, "Failed to connect to remote server. Retrying");
-						continue;
-					}
-
-					this.SetKeepAlive();
-					this.logger.LogInformation($"Connected to {iPEndPoint}");
-					this.IsConnected = true;
-					this.remoteEndpoint = iPEndPoint;
-					return;
-				}
-				catch (Exception ex)
-				{
-					if (!cancellationToken.IsCancellationRequested)
-					{
-						this.logger.LogError(ex, "Failed to connect to remote server. Retrying");
-					}
-				}
-			}
+			return this.StartEstablishConnection(iPEndPoint, cancellationToken);
 		}
 
 		public async Task SendAsync(TMessage payload, CancellationToken cancellationToken)
 		{
 			var data = this.messageSerializer.Serialize(payload);
 
-			if (!this.IsConnected)
+			if (!this.IsConnected && this.activelyRepairConnection)
 			{
-				this.StartEstablishConnection(this.remoteEndpoint, cancellationToken);
+				_ = this.StartEstablishConnection(this.remoteEndpoint, CancellationToken.None);
 				return;
 			}
 
@@ -116,11 +102,16 @@ namespace PhoneRemote.Core
 			catch (Exception ex)
 			{
 				this.logger.LogError(ex, $"Failed to send data to {this.remoteEndpoint}");
-				if (!cancellationToken.IsCancellationRequested && this.client != null)
+				if (!cancellationToken.IsCancellationRequested)
 				{
 					this.logger.LogWarning($"Trying to reset connection..");
-					this.CloseRemoteSocket();
-					this.StartEstablishConnection(this.remoteEndpoint, CancellationToken.None);
+					this.CloseSocket();
+					if (this.activelyRepairConnection)
+					{
+						_ = this.StartEstablishConnection(this.remoteEndpoint, CancellationToken.None);
+					}
+
+					this.ConnectionChange?.Invoke(this, new ConnectionChangeEventArgs { IsConnected = this.IsConnected, IsConnecting = this.IsConnecting });
 				}
 			}
 		}
@@ -135,56 +126,119 @@ namespace PhoneRemote.Core
 					this.client.NoDelay = true;
 					this.client.SendTimeout = 5000;
 					this.client.ReceiveTimeout = 5000;
-					//this.client.Bind(this.endpoint);
 				}
 			}
 		}
 
-		private void StartEstablishConnection(IPEndPoint iPEndPoint, CancellationToken cancellationToken)
+		private Task StartEstablishConnection(IPEndPoint iPEndPoint, CancellationToken cancellationToken)
 		{
-			if (this.establishConnectionTask != null)
+			if (this.establishConnectionTask == null)
 			{
-				return;
-			}
-
-			lock (this.syncRoot)
-			{
-				if (this.establishConnectionTask == null)
+				lock (this.syncRoot)
 				{
-					this.establishConnectionTask = ConnectAsync(iPEndPoint, cancellationToken).ContinueWith((t) =>
+					if (this.establishConnectionTask == null)
 					{
-						this.establishConnectionTask = null;
-					});
+						this.establishConnectionTask = EstablishConnection(iPEndPoint, cancellationToken).ContinueWith(async t =>
+						{
+							await Task.Yield();
+
+							this.IsConnecting = false;
+							if (t.Status != TaskStatus.RanToCompletion || !this.IsConnected)
+							{
+								this.establishConnectionTask = null;
+							}
+
+							this.ConnectionChange?.Invoke(this, new ConnectionChangeEventArgs { IsConnected = this.IsConnected, IsConnecting = this.IsConnecting });
+						});
+
+						this.IsConnecting = true;
+					}
 				}
 			}
+
+			return this.establishConnectionTask;
 		}
 
-		private void CloseRemoteSocket()
+		private async Task EstablishConnection(IPEndPoint iPEndPoint, CancellationToken cancellationToken)
 		{
-			lock (this.syncRoot)
-			{
-				//try
-				//{
-				this.IsConnected = false;
-				//	this.client.Disconnect(true);
-				//}
-				//catch (Exception ex)
-				//{
-					//this.logger.LogError(ex, "Error while trying to reuse existing connection. Closing.");
+			var tcs = new TaskCompletionSource<int>();
+			var registration = cancellationToken.Register(() => tcs.SetCanceled());
 
+			try
+			{
+				while (!cancellationToken.IsCancellationRequested)
+				{
 					try
 					{
-						this.client?.Close();
+						this.InitSocket();
+						var remoteSocketTask = this.client.ConnectAsync(iPEndPoint);
+						await Task.WhenAny(remoteSocketTask, tcs.Task).ConfigureAwait(false);
+
+						if (remoteSocketTask.Status != TaskStatus.RanToCompletion)
+						{
+							this.logger.LogError(remoteSocketTask.Exception, "Failed to connect to remote server. Retrying");
+							continue;
+						}
+
+						this.SetKeepAlive();
+						this.logger.LogInformation($"Connected to {iPEndPoint}");
+						this.remoteEndpoint = iPEndPoint;
+						this.IsConnected = true;
+						return;
 					}
-					catch (Exception closeEx)
+					catch (Exception ex)
 					{
-						this.logger.LogError(closeEx, "Error while trying to close existing connection.");
+						if (!cancellationToken.IsCancellationRequested)
+						{
+							this.logger.LogError(ex, "Failed to connect to remote server. Retrying");
+						}
 					}
-					finally
-					{
-						this.client = null;
-					}
-				//}
+				}
+
+				this.CloseSocket();
+			}
+			finally
+			{
+				registration.Dispose();
+			}
+		}
+
+		private void CloseSocket(Socket socket)
+		{
+			try
+			{
+				socket?.Close();
+			}
+			catch (Exception ex)
+			{
+				this.logger.LogError(ex, "Error while trying to close existing connection");
+			}
+
+			try
+			{
+				socket?.Dispose();
+			}
+			catch (Exception ex)
+			{
+				this.logger.LogError(ex, "Error while trying to close existing connection");
+			}
+		}
+
+		private void CloseSocket()
+		{
+			lock (this.syncRoot)
+			{
+				this.IsConnected = false;
+
+				try
+				{
+					this.CloseSocket(this.client);
+				}
+				finally
+				{
+					this.client = null;
+					this.establishConnectionTask = null;
+				}
 			}
 		}
 

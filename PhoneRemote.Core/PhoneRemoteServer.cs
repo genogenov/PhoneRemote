@@ -29,35 +29,46 @@ namespace PhoneRemote.Core
 		public async Task WaitForConnectionAsync(CancellationToken cancellationToken)
 		{
 			var tcs = new TaskCompletionSource<int>();
-			cancellationToken.Register(() => tcs.SetCanceled());
+			var registration = cancellationToken.Register(() => tcs.SetCanceled());
 
-			while (!cancellationToken.IsCancellationRequested)
+			try
 			{
-				try
+				while (!cancellationToken.IsCancellationRequested)
 				{
-					this.InitSocket();
-					this.server.Listen(1);
-					var remoteSocketTask = this.server.AcceptAsync();
-					await Task.WhenAny(remoteSocketTask, tcs.Task);
-
-					if (remoteSocketTask.Status != TaskStatus.RanToCompletion)
+					try
 					{
-						this.logger.LogError(remoteSocketTask.Exception, "Failed to accept incoming connection. Retrying");
+						this.InitSocket();
+						this.server.Listen(1);
+						var remoteSocketTask = this.server.AcceptAsync();
+						await Task.WhenAny(remoteSocketTask, tcs.Task);
+
+						if (remoteSocketTask.Status != TaskStatus.RanToCompletion)
+						{
+							this.logger.LogError(remoteSocketTask.Exception, "Failed to accept incoming connection. Retrying");
+							continue;
+						}
+
+						this.remoteSocket = remoteSocketTask.Result;
+						this.SetKeepAlive();
+						this.logger.LogInformation($"Got connection from {remoteSocket.RemoteEndPoint}");
+
+						return;
 					}
-
-					this.remoteSocket = remoteSocketTask.Result;
-					this.SetKeepAlive();
-					this.logger.LogInformation($"Got connection from {remoteSocket.RemoteEndPoint}");
-
-					return;
-				}
-				catch (Exception ex)
-				{
-					if (!cancellationToken.IsCancellationRequested)
+					catch (Exception ex)
 					{
-						this.logger.LogError(ex, "Failed to accept incoming connection. Retrying");
+						if (!cancellationToken.IsCancellationRequested)
+						{
+							this.logger.LogError(ex, "Failed to accept incoming connection. Retrying");
+						}
 					}
 				}
+
+				this.CloseExistingRemoteSocket();
+				this.CloseServerSocket();
+			}
+			finally
+			{
+				registration.Dispose();
 			}
 		}
 
@@ -74,7 +85,7 @@ namespace PhoneRemote.Core
 				catch (Exception ex)
 				{
 					this.logger.LogError(ex, $"Failed to receive data from {this.remoteSocket?.RemoteEndPoint}");
-					if (!cancellationToken.IsCancellationRequested && this.server != null)
+					if (!cancellationToken.IsCancellationRequested)
 					{
 						this.logger.LogWarning($"Trying to reset connection..");
 						this.CloseExistingRemoteSocket();
@@ -91,15 +102,44 @@ namespace PhoneRemote.Core
 		{
 			try
 			{
-				this.remoteSocket?.Close();
+				this.CloseSocket(this.remoteSocket);
+			}
+			finally
+			{
+				this.remoteSocket = null;
+			}
+		}
+
+		private void CloseServerSocket()
+		{
+			try
+			{
+				this.CloseSocket(this.server);
+			}
+			finally
+			{
+				this.server = null;
+			}
+		}
+
+		private void CloseSocket(Socket socket)
+		{
+			try
+			{
+				socket?.Close();
 			}
 			catch (Exception ex)
 			{
 				this.logger.LogError(ex, "Error while trying to close existing connection");
 			}
-			finally
+
+			try
 			{
-				this.remoteSocket = null;
+				socket?.Dispose();
+			}
+			catch (Exception ex)
+			{
+				this.logger.LogError(ex, "Error while trying to close existing connection");
 			}
 		}
 

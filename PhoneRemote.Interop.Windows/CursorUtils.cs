@@ -1,4 +1,5 @@
-﻿using System;
+﻿using PhoneRemote.Protobuf.ProtoModels;
+using System;
 using System.Runtime.InteropServices;
 
 namespace PhoneRemote.Interop.Windows
@@ -21,6 +22,11 @@ namespace PhoneRemote.Interop.Windows
             return SetCursorPos(x, y);
         }
 
+        public static void DispatchMouseEvent(CursorAction cursorAction)
+        {
+            mouse_event(cursorAction.ActionFlags, cursorAction.DX, cursorAction.DY, cursorAction.ActionData, cursorAction.ExtraInfo);
+        }
+
         [DllImport("user32.dll")]
         private static extern bool GetCursorInfo(ref CursorInfo pci);
 
@@ -30,5 +36,8 @@ namespace PhoneRemote.Interop.Windows
 
         [DllImport("user32.dll")]
         private static extern bool ClientToScreen(IntPtr hwnd, ref Point lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
     }
 }

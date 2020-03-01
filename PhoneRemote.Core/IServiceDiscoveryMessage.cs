@@ -4,7 +4,7 @@ namespace PhoneRemote.Core
 {
 	public interface IServiceDiscoveryMessage
 	{
-		IPAddress IpAddress { get; }
+		IPAddress Address { get; }
 
 		int Port { get;}
 

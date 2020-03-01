@@ -3,7 +3,10 @@ package PhoneRemote;
 
 option csharp_namespace = "PhoneRemote.Protobuf.ProtoModels";
 
-message CursorPosition {
+message CursorAction {
 	int32 dX = 1;
 	int32 dY = 2;
+	uint32 actionFlags = 3;
+	int32 actionData = 4;
+	int32 extraInfo = 5;
 }

@@ -15,6 +15,6 @@
 
 
 	<Target Name="protogen" BeforeTargets="BeforeBuild">
-		<Exec Command="&#xD;&#xA;			  $(PkgGoogle_Protobuf_Tools)\tools\windows_x64\protoc.exe --proto_path=$(ProjectDir)\ProtoDefs --csharp_out=$(ProjectDir)\ProtoModels $(ProjectDir)\ProtoDefs\*.proto" />
+		<Exec Command="$(PkgGoogle_Protobuf_Tools)\tools\windows_x64\protoc.exe --proto_path=$(ProjectDir)\ProtoDefs --csharp_out=$(ProjectDir)\ProtoModels $(ProjectDir)\ProtoDefs\*.proto" />
 	</Target>
 </Project>

@@ -46,16 +46,16 @@ namespace PhoneRemote.ServerConsole
 
 			var cursor = CursorUtils.GetCursorInfo();
 
-			await foreach (var pos in server.WaitForMessageAsync<CursorPosition>(CancellationToken.None))
+			await foreach (var action in server.WaitForMessageAsync<CursorAction>(CancellationToken.None))
 			{
 				//Console.SetCursorPosition(0, 2);
 
-				cursor.ptScreenPos.x += pos.DX;
-				cursor.ptScreenPos.y += pos.DY;
+				//cursor.ptScreenPos.x += pos.DX;
+				//cursor.ptScreenPos.y += pos.DY;
 
 				//Console.WriteLine($"dx,dy={pos.DX},{pos.DY}");
 
-				CursorUtils.MoveCursor(cursor.ptScreenPos.x, cursor.ptScreenPos.y);
+				CursorUtils.DispatchMouseEvent(action);
 			}
 		}
 	}
